@@ -1,24 +1,21 @@
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Layer, Dense, Dropout, Activation
 from AES.layers.activations import Gelu
-from AES.layers.layer_norm import LayerNormalization
 from tensorflow.keras.initializers import TruncatedNormal as tn
-from tensorflow import where, gather
+import tensorflow as tf
 
 
-# Compute the attention score \alpha_i assigned to sentence i, the \epsilon_i threshold for the sentence i,
-# and the binary masking to gather the selected sentences following \alpha_i > \epsilon_i with
-# # a single self-attention mechanism as presented in \cite{SHANN}
-class SingleSelfAttention(Layer):
+class TopkSingleSelfAttention(Layer):
 
-    def __init__(self, n_hidden, dims,
-                 dropout=0., init_range=0.02,
-                 **kwargs):
-        self.n_hidden = n_hidden
-        self.dims = dims
-        self.dropout = dropout
-        self.init_range = init_range
-        super(SingleSelfAttention, self).__init__(**kwargs)
+    def __init__(self, params, **kwargs):
+        print(params)
+        self.n_hidden = params["n_hidden"]
+        self.dims = params["dims"]
+        self.max_sents = params["max_sents"]
+        self.topk = params["topk"]
+        self.dropout = params["dropout"] if "dropout" in params else 0.
+        self.init_range = params["init_range"] if "init_range" in params else 0.02
+        super(TopkSingleSelfAttention, self).__init__(**kwargs)
 
     def build(self, input_shape):
         self.fc_layers = []
@@ -28,7 +25,7 @@ class SingleSelfAttention(Layer):
 
             fc.build((input_shape[0],
                       input_shape[1],
-                      input_shape[2] if i==0 else self.dims[i-1]))
+                      input_shape[2] if i == 0 else self.dims[i-1]))
 
             self._trainable_weights += fc.trainable_weights
             self.fc_layers.append(fc)
@@ -36,15 +33,98 @@ class SingleSelfAttention(Layer):
         self.alpha_layer = Dense(1, kernel_initializer=tn(stddev=self.init_range))
         self.alpha_layer.build((input_shape[0],
                                 input_shape[1],
-                                self.dims[-1]))
+                                self.dims[-1] if self.n_hidden>=1
+                                else input_shape[-1]))
+
         self._trainable_weights += self.alpha_layer.trainable_weights
 
-        self.epsilon_layer = Dense(input_shape[1], kernel_initializer=tn(stddev=self.init_range))
+        self.gelu = Gelu()
+        self.gelu.build(input_shape)
+
+        super(TopkSingleSelfAttention, self).build(input_shape)
+
+    def compute_mask(self, inputs, mask=None):
+        return mask
+
+    def __batched_gather(self, values, indices):
+        row_indices = tf.range(0, tf.shape(values)[0])[:, tf.newaxis]
+        row_indices = tf.tile(row_indices, [1, tf.shape(indices)[-1]])
+        indices = tf.stack([row_indices, indices], axis=-1)
+        return tf.gather_nd(values, indices)
+
+
+    def call(self, x, mask=None):
+        # Projections of x before computing attention #
+        h = x
+        for i in range(self.n_hidden):
+            h = self.fc_layers[i](h)
+            if self.dropout != 0.:
+                h = Dropout(self.dropout)(h)
+            h = self.gelu(h)
+
+        # Attention \alpha_i for each sentence #
+        alpha = self.alpha_layer(h)
+        alpha = K.squeeze(alpha, axis=-1)
+        alpha = Activation("softmax")(alpha)
+
+        # Get top_k \alpha #
+        sel_indices = tf.nn.top_k(alpha, self.topk)[1]
+
+        # Build candidate #
+        candidate = self.__batched_gather(x, sel_indices)
+
+        return sel_indices, candidate
+
+
+    def compute_output_shape(self, input_shape):
+        return ((input_shape[0], input_shape[1]),
+                (input_shape[0], None, input_shape[2]))
+
+
+# BUGUEADO, REPENSAR PARA USAR BATCHED_GATHER (PASANDO EL SHAPE DEL WHERE AL DE TOPK)
+class AutoEpsilonSingleSelfAttention(Layer):
+
+    def __init__(self, n_hidden, dims, max_sents,
+                 dropout=0., init_range=0.02,
+                 **kwargs):
+        self.n_hidden = n_hidden
+        self.dims = dims
+        self.dropout = dropout
+        self.init_range = init_range
+        self.max_sents = max_sents
+        super(AutoEpsilonSingleSelfAttention, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        self.fc_layers = []
+        for i in range(self.n_hidden):
+            fc = Dense(self.dims[i],
+                       kernel_initializer=tn(stddev=self.init_range))
+
+            fc.build((input_shape[0],
+                      input_shape[1],
+                      input_shape[2] if i == 0 else self.dims[i-1]))
+
+            self._trainable_weights += fc.trainable_weights
+            self.fc_layers.append(fc)
+
+        self.alpha_layer = Dense(1, kernel_initializer=tn(stddev=self.init_range))
+        self.alpha_layer.build((input_shape[0],
+                                input_shape[1],
+                                self.dims[-1] if self.n_hidden>=1 else input_shape[-1]))
+        self._trainable_weights += self.alpha_layer.trainable_weights
+
+        self.epsilon_layer = Dense(self.max_sents,
+                                   kernel_initializer=tn(stddev=self.init_range))
+
         self.epsilon_layer.build((input_shape[0],
-                                  input_shape[1]))
+                                  self.max_sents))
+
         self._trainable_weights += self.epsilon_layer.trainable_weights
 
-        super(SingleSelfAttention, self).build(input_shape)
+        self.gelu = Gelu()
+        self.gelu.build(input_shape)
+
+        super(AutoEpsilonSingleSelfAttention, self).build(input_shape)
 
     def compute_mask(self, inputs, mask=None):
         return mask
@@ -56,8 +136,8 @@ class SingleSelfAttention(Layer):
             h = self.fc_layers[i](h)
             if self.dropout != 0.:
                 h = Dropout(self.dropout)(h)
-            h = Gelu()(h)
-            h = LayerNormalization()(h)
+            h = self.gelu(h)
+            h = self.layer_normalization(h)
 
         # Attention \alpha_i for each sentence #
         alpha = self.alpha_layer(h)
@@ -67,26 +147,102 @@ class SingleSelfAttention(Layer):
         # Threshold \epsilon_i for each sentence #
         epsilon = self.epsilon_layer(alpha)
         epsilon = Activation("sigmoid")(epsilon)
-        epsilon = LayerNormalization()(epsilon)
 
         # Get \alpha_i > \epsilon_i #
-        # https://stackoverflow.com/questions/33769041/tensorflow-indexing-with-boolean-tensor #
-        # REVISAR ESTO CUANDO ESTÉ IMPLEMENTADO, EL FLATTEN NO SE YO SI... PORQUE WHERE DABA (None, 2) siempre #
-        great_sents = K.flatten(where(K.greater(alpha, epsilon)))
-        return (great_sents, gather(x, great_sents, axis=1))
+        # BUGUEADO, REPENSAR PARA USAR BATCHED_GATHER (PASANDO EL SHAPE DEL WHERE AL DE TOPK)
+        #sel_indices = where(K.greater(alpha, epsilon))[:,1]
+        greaters = K.greater(alpha, epsilon)
+        print(greaters)
+        print(x)
+        candidate = tf.boolean_mask(x, greaters, axis=0)
+        print(candidate)
+        exit()
+
+        #if equal(size(candidate), 0):
+        #    sel_indices = K.constant(value=np.array([0]), dtype="int64")
+
+        # Build candidate #
+        #candidate = gather(x, sel_indices, axis=1)
+
+        return greaters, candidate
 
     def compute_output_shape(self, input_shape):
-        return ((input_shape[0], None),
-                (input_shape[0], None, input_shape[-1]))
+        return ((input_shape[0], input_shape[1]),
+                (input_shape[0], None, input_shape[2]))
 
-# Compute the attention score \alpha_i assigned to sentence i, the \epsilon_i threshold for the sentence i,
-# and the binary masking to gather the selected sentences following \alpha_i > \epsilon_i with
-# the multi-head self-attention mechanism as presented in \cite{SHTE}
-class MultiHeadSelfAttention(Layer):
+# TODO
+class ThresholdedSingleSelfAttention(Layer):
 
-    def __init__(self, n_hidden, dims, dropout, init_range=0.02, **kwargs):
+    def __init__(self, n_hidden, dims, max_sents,
+                 topk=3, dropout=0., init_range=0.02,
+                 **kwargs):
         self.n_hidden = n_hidden
         self.dims = dims
+        self.topk = topk
         self.dropout = dropout
         self.init_range = init_range
-        super(MultiHeadSelfAttention, self).__init__(**kwargs)
+        self.max_sents = max_sents
+        super(ThresholdedSingleSelfAttention, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        self.fc_layers = []
+        for i in range(self.n_hidden):
+            fc = Dense(self.dims[i],
+                       kernel_initializer=tn(stddev=self.init_range))
+
+            fc.build((input_shape[0],
+                      input_shape[1],
+                      input_shape[2] if i == 0 else self.dims[i-1]))
+
+            self._trainable_weights += fc.trainable_weights
+            self.fc_layers.append(fc)
+
+        self.alpha_layer = Dense(1, kernel_initializer=tn(stddev=self.init_range))
+        self.alpha_layer.build((input_shape[0],
+                                input_shape[1],
+                                self.dims[-1] if self.n_hidden>=1
+                                else input_shape[-1]))
+
+        self._trainable_weights += self.alpha_layer.trainable_weights
+
+        self.gelu = Gelu()
+        self.gelu.build(input_shape)
+
+        super(ThresholdedSingleSelfAttention, self).build(input_shape)
+
+    def compute_mask(self, inputs, mask=None):
+        return mask
+
+    def __batched_gather(self, values, indices):
+        row_indices = tf.range(0, tf.shape(values)[0])[:, tf.newaxis]
+        row_indices = tf.tile(row_indices, [1, tf.shape(indices)[-1]])
+        indices = tf.stack([row_indices, indices], axis=-1)
+        return tf.gather_nd(values, indices)
+
+
+    def call(self, x, mask=None):
+        # Projections of x before computing attention #
+        h = x
+        for i in range(self.n_hidden):
+            h = self.fc_layers[i](h)
+            if self.dropout != 0.:
+                h = Dropout(self.dropout)(h)
+            h = self.gelu(h)
+
+        # Attention \alpha_i for each sentence #
+        alpha = self.alpha_layer(h)
+        alpha = K.squeeze(alpha, axis=-1)
+        alpha = Activation("softmax")(alpha)
+
+        # Get top_k \alpha #
+        sel_indices = tf.nn.top_k(alpha, self.topk)[1]
+
+        # Build candidate #
+        candidate = self.__batched_gather(x, sel_indices)
+
+        return sel_indices, candidate
+
+
+    def compute_output_shape(self, input_shape):
+        return ((input_shape[0], input_shape[1]),
+                (input_shape[0], None, input_shape[2]))

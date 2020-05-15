@@ -1,5 +1,6 @@
-from AES.layers.self_attention import SingleSelfAttention
-from AES.utils.utils import cosine_distance
+from AES.layers import self_attention as self_attention
+import AES.optimization.losses as losses_module
+import AES.optimization.metrics as metrics_module
 import tensorflow as tf
 import transformers
 import numpy as np
@@ -10,13 +11,21 @@ import numpy as np
 class AESModel():
 
     def __init__(self, model_name, shortcut_weights,
-                 max_len_sent, max_sents, optimizer):
+                 max_len_sent, max_sents, att_layer,
+                 att_params, optimizer, loss="triplet_loss_cos",
+                 margin=1., metrics=["cos_sim_pos", "cos_sim_neg"]):
+
         self.model_name = model_name
         self.shortcut_weights = shortcut_weights
         self.max_len_sent = max_len_sent
         self.max_sents = max_sents
         self.max_len_seq = (self.max_len_sent * self.max_sents) + (self.max_sents * 2)
+        self.att_layer = getattr(self_attention, att_layer)
+        self.att_params = att_params
         self.optimizer = optimizer
+        self.loss = getattr(losses_module, loss)
+        self.margin = margin
+        self.metrics = [getattr(metrics_module, metric) for metric in metrics]
 
     # Add more position embeddings for sequences larger than 512 tokens #
     def _add_position_embeddings(self, position_embeddings):
@@ -88,19 +97,18 @@ class AESModel():
                                                   self.max_len_sent+2)],
                                 axis=1)
 
-        sel_indices, candidate = SingleSelfAttention(3, [128, 128, 256], 0.2)(encoded_cls)
+        sel_indices, candidate = self.att_layer(self.att_params)(encoded_cls)
 
         candidate_repr = tf.keras.layers.GlobalAveragePooling1D()(candidate)
         pos_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_pos_sents)
         neg_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_neg_sents)
 
-        pos_distance = cosine_distance(candidate_repr, pos_repr)
-        neg_distance = cosine_distance(candidate_repr, neg_repr)
+        output = tf.keras.layers.Concatenate(axis=-1)([candidate_repr, pos_repr, neg_repr])
 
         # Define model #
         self.tr_model = tf.keras.Model(inputs=[input_ids, input_masks,
                                                input_segments, input_positions],
-                                       outputs=[pos_distance, neg_distance])
+                                       outputs=[output])
 
         self.summ_model = tf.keras.Model(inputs=[input_ids, input_masks,
                                                input_segments, input_positions],
@@ -110,7 +118,8 @@ class AESModel():
     def compile(self):
         assert self.tr_model
         self.tr_model.compile(optimizer=self.optimizer,
-                              loss="categorical_crossentropy")
+                              loss=self.loss(self.margin),
+                              metrics=self.metrics)
 
     def save_model(self):
         pass

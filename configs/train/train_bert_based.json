@@ -19,11 +19,25 @@
         "alpha": 0.5
     },
 
+    "model": {
+        "att_layer": "TopkSingleSelfAttention",
+        "att_params": {
+            "n_hidden": 0,
+            "dims": null,
+            "topk": 3,
+            "dropout": 0.1,
+            "init_range": 0.02
+        }
+    },
+
     "optimization": {
+        "loss": "triplet_loss_cos",
+        "margin": 1.0,
         "optimizer": "adam",
         "noam_annealing": true,
         "warmup_steps": 10000,
-        "grad_accum_iters": 32
+        "grad_accum_iters": 32,
+        "metrics": ["cos_sim_pos", "cos_sim_neg"]
     },
 
     "training_params": {
