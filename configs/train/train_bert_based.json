@@ -1,16 +1,19 @@
 {
     "dataset": {
-        "file": "./datasets/cnndm/samples.csv"
+        "file": "./datasets/cnndm/test.tsv"
     },
 
     "representation": {
-        "max_len_sent": 20,
-        "max_sents": 30
+        "max_len_sent_doc": 30,
+        "max_sents_doc": 15,
+        "max_len_sent_summ": 30,
+        "max_sents_summ": 5,
+        "sent_split": "<s>"
     },
 
     "huggingface": {
         "model_name": "TFBertModel",
-        "tokenizer": "BertTokenizer",
+        "tokenizer": "BertTokenizerFast",
         "shortcut_weights": "bert-base-cased"
     },
 
@@ -31,17 +34,17 @@
     },
 
     "optimization": {
-        "loss": "triplet_loss_cos",
+        "loss": "triplet_loss_eucl",
         "margin": 1.0,
         "optimizer": "adam",
         "noam_annealing": true,
         "warmup_steps": 10000,
         "grad_accum_iters": 32,
-        "metrics": ["cos_sim_pos", "cos_sim_neg"]
+        "metrics": ["eucl_dist_pos", "eucl_dist_neg"]
     },
 
     "training_params": {
-        "batch_size": 32,
+        "batch_size": 8,
         "epochs": 30,
         "path_save_weights": "./weights/cnndm/",
         "verbose": 1

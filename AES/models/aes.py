@@ -11,15 +11,19 @@ import numpy as np
 class AESModel():
 
     def __init__(self, model_name, shortcut_weights,
-                 max_len_sent, max_sents, att_layer,
+                 max_len_sent_doc, max_sents_doc,
+                 max_len_sent_summ, max_sents_summ, att_layer,
                  att_params, optimizer, loss="triplet_loss_cos",
                  margin=1., metrics=["cos_sim_pos", "cos_sim_neg"]):
 
         self.model_name = model_name
         self.shortcut_weights = shortcut_weights
-        self.max_len_sent = max_len_sent
-        self.max_sents = max_sents
-        self.max_len_seq = (self.max_len_sent * self.max_sents) + (self.max_sents * 2)
+        self.max_len_sent_doc = max_len_sent_doc
+        self.max_sents_doc = max_sents_doc
+        self.max_len_sent_summ = max_len_sent_summ
+        self.max_sents_summ = max_sents_summ
+        self.max_len_seq_doc = (self.max_len_sent_doc * self.max_sents_doc) + (self.max_sents_doc * 2)
+        self.max_len_seq_summ = (self.max_len_sent_summ * self.max_sents_summ) + (self.max_sents_summ * 2)
         self.att_layer = getattr(self_attention, att_layer)
         self.att_params = att_params
         self.optimizer = optimizer
@@ -32,41 +36,42 @@ class AESModel():
         current_weights = position_embeddings.get_weights()[0]
         current_positions = len(current_weights)
         dim_emb = current_weights[0].shape[-1]
-        if self.max_len_seq > current_positions:
-            rows_to_add = self.max_len_seq - current_positions
+        # We avoided max(max_len_seq_doc, max_len_seq_summ) -> len_seq_doc always >>> len_seq_summ #
+        if self.max_len_seq_doc > current_positions:
+            rows_to_add = self.max_len_seq_doc - current_positions
             new_rows = np.random.random((rows_to_add, dim_emb))
             updated_weights = np.vstack((current_weights, new_rows))
-            position_embeddings.input_dim = self.max_len_seq
+            position_embeddings.input_dim = self.max_len_seq_doc
             position_embeddings.embeddings = tf.keras.backend.variable(updated_weights)
             position_embeddings.set_weights([updated_weights])
 
     def build(self):
-        input_ids = {"document": tf.keras.layers.Input((self.max_len_seq,),
+        input_ids = {"document": tf.keras.layers.Input((self.max_len_seq_doc,),
                                                           dtype=tf.int32),
-                     "pos_summary": tf.keras.layers.Input((self.max_len_seq,),
+                     "pos_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                           dtype=tf.int32),
-                     "neg_summary": tf.keras.layers.Input((self.max_len_seq,),
+                     "neg_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                           dtype=tf.int32)}
 
-        input_masks = {"document": tf.keras.layers.Input((self.max_len_seq,),
+        input_masks = {"document": tf.keras.layers.Input((self.max_len_seq_doc,),
                                                             dtype=tf.int32),
-                       "pos_summary": tf.keras.layers.Input((self.max_len_seq,),
+                       "pos_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                             dtype=tf.int32),
-                       "neg_summary": tf.keras.layers.Input((self.max_len_seq,),
+                       "neg_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                             dtype=tf.int32)}
 
-        input_segments = {"document": tf.keras.layers.Input((self.max_len_seq,),
+        input_segments = {"document": tf.keras.layers.Input((self.max_len_seq_doc,),
                                                             dtype=tf.int32),
-                          "pos_summary": tf.keras.layers.Input((self.max_len_seq,),
+                          "pos_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                                dtype=tf.int32),
-                          "neg_summary": tf.keras.layers.Input((self.max_len_seq,),
+                          "neg_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                                dtype=tf.int32)}
 
-        input_positions = {"document": tf.keras.layers.Input((self.max_len_seq,),
+        input_positions = {"document": tf.keras.layers.Input((self.max_len_seq_doc,),
                                                              dtype=tf.int32),
-                          "pos_summary": tf.keras.layers.Input((self.max_len_seq,),
+                          "pos_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                                dtype=tf.int32),
-                          "neg_summary": tf.keras.layers.Input((self.max_len_seq,),
+                          "neg_summary": tf.keras.layers.Input((self.max_len_seq_summ,),
                                                                dtype=tf.int32)}
 
         # Select HuggingFace model #
@@ -93,8 +98,8 @@ class AESModel():
                                          attention_mask = input_masks["neg_summary"])[0]
 
         encoded_cls = tf.gather(encoded_doc_sents,
-                                [_ for _ in range(0, self.max_len_seq,
-                                                  self.max_len_sent+2)],
+                                [_ for _ in range(0, self.max_len_seq_doc,
+                                                  self.max_len_sent_doc+2)],
                                 axis=1)
 
         sel_indices, candidate = self.att_layer(self.att_params)(encoded_cls)
@@ -103,16 +108,38 @@ class AESModel():
         pos_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_pos_sents)
         neg_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_neg_sents)
 
-        output = tf.keras.layers.Concatenate(axis=-1)([candidate_repr, pos_repr, neg_repr])
+        output = tf.keras.layers.Concatenate(axis=-1)([candidate_repr,
+                                                       pos_repr,
+                                                       neg_repr])
 
         # Define model #
-        self.tr_model = tf.keras.Model(inputs=[input_ids, input_masks,
-                                               input_segments, input_positions],
+        self.tr_model = tf.keras.Model(inputs=[input_ids["document"],
+                                               input_masks["document"],
+                                               input_segments["document"],
+                                               input_positions["document"],
+                                               input_ids["pos_summary"],
+                                               input_masks["pos_summary"],
+                                               input_segments["pos_summary"],
+                                               input_positions["pos_summary"],
+                                               input_ids["neg_summary"],
+                                               input_masks["neg_summary"],
+                                               input_segments["neg_summary"],
+                                               input_positions["neg_summary"]],
                                        outputs=[output])
 
-        self.summ_model = tf.keras.Model(inputs=[input_ids, input_masks,
-                                               input_segments, input_positions],
-                                       outputs=[sel_indices])
+        self.summ_model = tf.keras.Model(inputs=[input_ids["document"],
+                                                 input_masks["document"],
+                                                 input_segments["document"],
+                                                 input_positions["document"],
+                                                 input_ids["pos_summary"],
+                                                 input_masks["pos_summary"],
+                                                 input_segments["pos_summary"],
+                                                 input_positions["pos_summary"],
+                                                 input_ids["neg_summary"],
+                                                 input_masks["neg_summary"],
+                                                 input_segments["neg_summary"],
+                                                 input_positions["neg_summary"]],
+                                         outputs=[sel_indices])
 
 
     def compile(self):

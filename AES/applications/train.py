@@ -14,8 +14,12 @@ if __name__ == "__main__":
     dataset = config["dataset"]["file"]
 
     # Representation params #
-    max_len_sent = config["representation"]["max_len_sent"]
-    max_sents = config["representation"]["max_sents"]
+    max_len_sent_doc = config["representation"]["max_len_sent_doc"]
+    max_sents_doc = config["representation"]["max_sents_doc"]
+    max_len_sent_summ = config["representation"]["max_len_sent_summ"]
+    max_sents_summ = config["representation"]["max_sents_summ"]
+
+    sent_split = config["representation"]["sent_split"]
 
     # Params for HuggingFace Transformer implementation #
     model_name = config["huggingface"]["model_name"]
@@ -27,7 +31,7 @@ if __name__ == "__main__":
     # Params for AES model #
     att_layer = config["model"]["att_layer"]
     att_params = config["model"]["att_params"]
-    att_params["max_sents"] = max_sents
+    att_params["max_sents"] = max_sents_doc
 
     # Params for optimization process #
     loss = config["optimization"]["loss"]
@@ -49,8 +53,10 @@ if __name__ == "__main__":
 
     aes = AESModel(model_name=model_name,
                    shortcut_weights=shortcut_weights,
-                   max_len_sent=max_len_sent,
-                   max_sents=max_sents,
+                   max_len_sent_doc=max_len_sent_doc,
+                   max_sents_doc=max_sents_doc,
+                   max_len_sent_summ=max_len_sent_summ,
+                   max_sents_summ=max_sents_summ,
                    att_layer=att_layer,
                    att_params=att_params,
                    optimizer=optimizer,
@@ -61,6 +67,11 @@ if __name__ == "__main__":
     aes.compile()
     print(aes.tr_model.summary())
 
-    tr_generator = TrainGenerator(dataset, batch_size).generator()
+    tr_generator = TrainGenerator(dataset, batch_size,
+                                  tokenizer, max_len_sent_doc,
+                                  max_sents_doc, max_len_sent_summ,
+                                  max_sents_summ, sent_split=sent_split).generator()
+    aes.tr_model.fit_generator(tr_generator, steps_per_epoch=100, epochs=2)
+
     print(next(tr_generator))
 
