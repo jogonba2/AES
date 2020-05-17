@@ -1,21 +1,19 @@
-from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.optimizers.schedules import LearningRateSchedule
 
 
-class Noam(Callback):
+class Noam(LearningRateSchedule):
+  def __init__(self, warmup_steps, hidden_dims, name=None):
+      self.warmup_steps = warmup_steps
+      self.hidden_dims = hidden_dims
+      super(Noam, self).__init__()
 
-    def __init__(self, warmup_steps, hidden_dims,
-                 accum_iters, initial_batch):
-        super().__init__()
-        self.batch = initial_batch
-        self.warmup_steps = warmup_steps
-        self.hidden_dims = hidden_dims
-        self.accum_iters = accum_iters
+  def __call__(self, step):
+      return (self.hidden_dims ** -0.5) * \
+              min((step ** (-0.5)), step * (self.warmup_steps ** (-1.5)))
 
-    def on_batch_end(self, _, logs={}):
-        if (self.batch + 1) % self.accum_iters == 0:
-            new_lr = (self.hidden_dims ** -0.5) * \
-                      min((((self.batch+1) / self.accum_iters) ** (-0.5)),
-                          ((self.batch+1) / self.accum_iters) *
-                          (self.warmup_steps ** (-1.5)))
-            self.model.optimizer.learning_rate.assign(new_lr)
-        self.batch += 1
+  def get_config(self):
+    return {
+        "warmup_steps": self.warmup_steps,
+        "hidden_dims": self.hidden_dims,
+        "name": self.name
+    }

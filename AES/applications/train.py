@@ -1,6 +1,7 @@
 from AES.models.aes import AESModel
 from AES.utils.generator import TrainGenerator
 from AES.optimization.lr_annealing import Noam
+from AES.optimization.train_schedule import fit, grad_accum_fit
 from AES.utils.callbacks import TimeCheckpoint
 import tensorflow as tf
 import transformers
@@ -98,16 +99,20 @@ if __name__ == "__main__":
                                                     monitor="loss",
                                                     save_best_only=False)
     hour_checkpoint = TimeCheckpoint(hours_step=1, path=path_save_weights)
-    callbacks = [hour_checkpoint]
+    callbacks = {"hour_checkpointing" : hour_checkpoint}
 
     if noam_annealing:
         noam = Noam(warmup_steps=warmup_steps,
                     hidden_dims=hidden_dim,
                     accum_iters=grad_accum_iters,
                     initial_batch=0)
-        callbacks.append(noam)
+        callbacks["noam_annealing"] = noam
 
-    aes.model.fit(train_dataset, epochs=3, steps_per_epoch=n_dataset//batch_size, callbacks=callbacks)
+    # Training #
+    if grad_accum_iters == 1:
+        fit(aes.model, train_dataset, n_dataset, epochs, batch_size, callbacks)
+    else:
+        fit(aes.model, train_dataset, n_dataset, epochs, batch_size, callbacks)
 
     aes.save_model(path_save_weights)
 
