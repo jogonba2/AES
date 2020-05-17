@@ -2,30 +2,23 @@ from tensorflow.keras import backend as K
 import tensorflow as tf
 
 
-def eucl_dist_pos(_, y_pred):
-    vector_size = y_pred.shape[1] // 3
-    anchor = y_pred[:, :vector_size]
-    positive = y_pred[:, vector_size:2*vector_size]
-    pos_dist = K.mean(K.square(anchor - positive), axis=1)
-    return pos_dist
-
-def eucl_dist_neg(_, y_pred):
-    vector_size = y_pred.shape[1] // 3
-    anchor = y_pred[:, :vector_size]
-    negative = y_pred[:, 2*vector_size:]
-    neg_dist = K.mean(K.square(anchor - negative), axis=1)
-    return neg_dist
-
-def cos_sim_pos(_, y_pred):
+def cos_sim_doc_summ(_, y_pred):
     vector_size = y_pred.shape[-1] // 3
-    anchor_vec = y_pred[:, :vector_size]
-    positive_vec = y_pred[:, vector_size:2*vector_size]
-    d = tf.keras.losses.cosine_similarity(anchor_vec, positive_vec)
-    return d
+    doc_repr = y_pred[:, :vector_size]
+    summ_repr = y_pred[:, vector_size:2 * vector_size]
+    sim_doc_summ = tf.keras.losses.cosine_similarity(doc_repr, summ_repr, axis=-1)
+    return sim_doc_summ
 
-def cos_sim_neg(_, y_pred):
+def cos_sim_doc_cand(_, y_pred):
     vector_size = y_pred.shape[-1] // 3
-    anchor_vec = y_pred[:, :vector_size]
-    negative_vec = y_pred[:, 2*vector_size:]
-    d = tf.keras.losses.cosine_similarity(anchor_vec, negative_vec)
-    return d
+    doc_repr = y_pred[:, :vector_size]
+    cand_repr = y_pred[:, 2 * vector_size:]
+    sim_doc_cand = tf.keras.losses.cosine_similarity(doc_repr, cand_repr, axis=-1)
+    return sim_doc_cand
+
+def cos_sim_summ_cand(_, y_pred):
+    vector_size = y_pred.shape[-1] // 2
+    summ_repr = y_pred[:, :vector_size]
+    cand_repr = y_pred[:, vector_size:]
+    sim_summ_cand = tf.keras.losses.cosine_similarity(summ_repr, cand_repr, axis=-1)
+    return sim_summ_cand

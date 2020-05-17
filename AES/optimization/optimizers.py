@@ -1,14 +1,14 @@
-import tensorflow.keras.backend as K
+import keras.backend as K
 import tensorflow as tf
 from keras.legacy import interfaces
-from tensorflow.keras.optimizers import Optimizer
+from keras.optimizers import Optimizer
 
 
-class LAMB(Optimizer):
+class Lamb(Optimizer):
 
     def __init__(self, lr=0.00176, beta_1=0.9, beta_2=0.999, epsilon=1e-6,
                  weight_decay=0., accum_iters=1, **kwargs):
-        super(LAMB, self).__init__(**kwargs)
+        super(Lamb, self).__init__(**kwargs)
         with K.name_scope(self.__class__.__name__):
             self.iterations = K.variable(0, dtype='int64', name='iterations')
 
@@ -27,7 +27,7 @@ class LAMB(Optimizer):
 
         self.updates = [K.update_add(self.iterations, 1)]
 
-        completed_updates = K.cast(tf.floordiv(self.iterations,
+        completed_updates = K.cast(tf.math.floordiv(self.iterations,
                                                self.accum_iters),
                                    K.floatx())
         t = completed_updates + 1
@@ -74,21 +74,22 @@ class LAMB(Optimizer):
                   'beta_2': float(K.get_value(self.beta_2)),
                   'epsilon': self.epsilon,
                   'weight_decay': self.weight_decay}
-        base_config = super(LAMB, self).get_config()
+        base_config = super(Lamb, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class ADAM(Optimizer):
+class AAdam(Optimizer):
 
     def __init__(self, lr=0.0001, beta_1=0.9, beta_2=0.98,
                  epsilon=1e-6, decay=0., amsgrad=False,
                  accum_iters=1, **kwargs):
         if accum_iters < 1:
             raise ValueError('accum_iters must be >= 1')
-        super(ADAM, self).__init__(**kwargs)
+        super(AAdam, self).__init__(**kwargs)
+
         with K.name_scope(self.__class__.__name__):
             self.iterations = K.variable(0, dtype='int64', name='iterations')
-            self.lr = K.variable(lr, name='lr')
+            self.learning_rate = K.variable(lr, name='lr')
             self.beta_1 = K.variable(beta_1, name='beta_1')
             self.beta_2 = K.variable(beta_2, name='beta_2')
             self.decay = K.variable(decay, name='decay')
@@ -101,13 +102,14 @@ class ADAM(Optimizer):
         self.accum_iters_float = K.cast(self.accum_iters, K.floatx())
 
     @interfaces.legacy_get_updates_support
+    @K.symbolic
     def get_updates(self, loss, params):
         grads = self.get_gradients(loss, params)
         self.updates = [K.update_add(self.iterations, 1)]
 
-        lr = self.lr
+        lr = self.learning_rate
 
-        completed_updates = K.cast(tf.floordiv(self.iterations,
+        completed_updates = K.cast(tf.math.floordiv(self.iterations,
                                                self.accum_iters),
                                    K.floatx())
 
@@ -123,8 +125,8 @@ class ADAM(Optimizer):
         update_switch = K.cast(update_switch, K.floatx())
 
         ms = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
-        vs = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
-        gs = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
+        vs = [K.zeros(K.int_shape(p),  dtype=K.dtype(p)) for p in params]
+        gs = [K.zeros(K.int_shape(p),  dtype=K.dtype(p)) for p in params]
 
         if self.amsgrad:
             vhats = [K.zeros(K.int_shape(p), dtype=K.dtype(p)) for p in params]
@@ -139,8 +141,7 @@ class ADAM(Optimizer):
             avg_grad = sum_grad / self.accum_iters_float
 
             m_t = (self.beta_1 * m) + (1. - self.beta_1) * avg_grad
-            v_t = (self.beta_2 * v) + (1. - self.beta_2) * K.square(
-                avg_grad)  # X
+            v_t = (self.beta_2 * v) + (1. - self.beta_2) * K.square(avg_grad)  # X
 
             if self.amsgrad:
                 vhat_t = K.maximum(vhat, v_t)
@@ -172,5 +173,5 @@ class ADAM(Optimizer):
                   'decay': float(K.get_value(self.decay)),
                   'epsilon': self.epsilon,
                   'amsgrad': self.amsgrad}
-        base_config = super(ADAM, self).get_config()
+        base_config = super(AAdam, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))

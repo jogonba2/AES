@@ -1,5 +1,6 @@
 from AES.models.aes import AESModel
 from AES.utils.generator import TrainGenerator
+import tensorflow as tf
 import transformers
 import json
 import sys
@@ -11,7 +12,7 @@ if __name__ == "__main__":
         config = json.load(json_file)
 
     # Load dataset #
-    dataset = config["dataset"]["file"]
+    dataset_file = config["dataset"]["file"]
 
     # Representation params #
     max_len_sent_doc = config["representation"]["max_len_sent_doc"]
@@ -34,9 +35,9 @@ if __name__ == "__main__":
     att_params["max_sents"] = max_sents_doc
 
     # Params for optimization process #
-    loss = config["optimization"]["loss"]
+    match_loss = config["optimization"]["match_loss"]
     margin = config["optimization"]["margin"]
-    optimizer = config["optimization"]["optimizer"]
+    select_loss = config["optimization"]["select_loss"]
     noam_annealing = config["optimization"]["noam_annealing"]
     if noam_annealing:
         warmup_steps = config["optimization"]["warmup_steps"]
@@ -50,7 +51,6 @@ if __name__ == "__main__":
     verbose = config["training_params"]["verbose"]
 
     # Create model #
-
     aes = AESModel(model_name=model_name,
                    shortcut_weights=shortcut_weights,
                    max_len_sent_doc=max_len_sent_doc,
@@ -59,19 +59,38 @@ if __name__ == "__main__":
                    max_sents_summ=max_sents_summ,
                    att_layer=att_layer,
                    att_params=att_params,
-                   optimizer=optimizer,
-                   loss=loss,
+                   match_loss=match_loss,
                    margin=margin,
+                   select_loss=select_loss,
                    metrics=metrics)
     aes.build()
     aes.compile()
-    print(aes.tr_model.summary())
+    print(aes.model.summary())
 
-    tr_generator = TrainGenerator(dataset, batch_size,
-                                  tokenizer, max_len_sent_doc,
-                                  max_sents_doc, max_len_sent_summ,
-                                  max_sents_summ, sent_split=sent_split).generator()
-    aes.tr_model.fit_generator(tr_generator, steps_per_epoch=100, epochs=2)
+    tr_generator = TrainGenerator(dataset_file, tokenizer,
+                                  max_len_sent_doc, max_sents_doc,
+                                  max_len_sent_summ, max_sents_summ,
+                                  sent_split=sent_split).generator
 
-    print(next(tr_generator))
+    # Create Dataset from generator for bigger batch sizes #
+    dataset = tf.data.Dataset.from_generator(tr_generator,
+                                             ({'doc_token_ids': tf.int32,
+                                               'doc_positions': tf.int32,
+                                               'doc_segments': tf.int32,
+                                               'doc_masks': tf.int32,
+                                               'summ_token_ids': tf.int32,
+                                               'summ_positions': tf.int32,
+                                               'summ_segments': tf.int32,
+                                               'summ_masks': tf.int32,
+                                               }, {"matching": tf.int32,
+                                                   "selecting": tf.int32}))
+
+    n_samples = 15000
+    train_dataset = dataset.shuffle(128).batch(batch_size).repeat(-1)
+
+    aes.model.fit(train_dataset, epochs=2, steps_per_epoch=n_samples//batch_size)
+    aes.save_model(path_save_weights)
+
+    # Custom training for accumulating gradient #
+    #https://colab.research.google.com/gist/rmothukuru/88dd02828f50d9727004d3d9db2c97d3/accumulation_of_gradients.ipynb#scrollTo=0m1xAXrmqEgJ
 

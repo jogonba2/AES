@@ -1,3 +1,9 @@
+import numpy as np
+
+def trigram_blocking():
+    pass
+
+
 def prepare_inputs(text_sents, tokenizer,
                    max_len_sent, max_sents):
 
@@ -70,9 +76,12 @@ def prepare_inputs(text_sents, tokenizer,
 
         i += 1
 
-    return (token_ids, positions, segments, masks)
+    return (np.array(token_ids, dtype="int32"),
+            np.array(positions, dtype="int32"),
+            np.array(segments, dtype="int32"),
+            np.array(masks, dtype="int32"))
 
-# Add during development #
+
 def preprocess_text(text, sent_split):
     text = text.strip()
     text_sents = [line for line in text.split(sent_split) if line!=""]
