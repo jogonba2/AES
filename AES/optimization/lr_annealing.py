@@ -1,5 +1,4 @@
 from tensorflow.keras.callbacks import Callback
-from tensorflow.keras import backend as K
 
 
 class Noam(Callback):
@@ -12,11 +11,11 @@ class Noam(Callback):
         self.hidden_dims = hidden_dims
         self.accum_iters = accum_iters
 
-    def on_batch_end(self, batch, logs={}):
+    def on_batch_end(self, _, logs={}):
         if (self.batch + 1) % self.accum_iters == 0:
             new_lr = (self.hidden_dims ** -0.5) * \
                       min((((self.batch+1) / self.accum_iters) ** (-0.5)),
                           ((self.batch+1) / self.accum_iters) *
                           (self.warmup_steps ** (-1.5)))
-            K.set_value(self.model.optimizer.lr, new_lr)
+            self.model.optimizer.learning_rate.assign(new_lr)
         self.batch += 1

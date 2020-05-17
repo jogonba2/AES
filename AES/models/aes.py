@@ -1,7 +1,6 @@
 from AES.layers import self_attention as self_attention
 import AES.optimization.losses as losses_module
 import AES.optimization.metrics as metrics_module
-import AES.optimization.optimizers as optimizers
 from tensorflow.keras import backend as K
 import tensorflow as tf
 import transformers

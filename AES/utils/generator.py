@@ -1,10 +1,9 @@
 from AES.utils import utils as ut
 
 
-# https://omoindrot.github.io/triplet-loss
 class TrainGenerator:
 
-    def __init__(self, dataset_file, batch_size, tokenizer,
+    def __init__(self, dataset_file, tokenizer,
                  max_len_sent_doc, max_sents_doc,
                  max_len_sent_summ, max_sents_summ,
                  sent_split="<s>"):

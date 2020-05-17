@@ -4,8 +4,6 @@ from tensorflow.keras.layers import (Layer, Dense,
                                      RepeatVector, Permute,
                                      Multiply)
 from AES.layers import activations
-from tensorflow.keras.initializers import TruncatedNormal as tn
-import tensorflow as tf
 
 class SingleSelfAttention(Layer):
 
@@ -21,7 +19,7 @@ class SingleSelfAttention(Layer):
         self.input_dims = input_shape[-1]
         self.fc_layers = []
         for i in range(self.n_hidden):
-            fc = Dense(self.dims[i], kernel_initializer=tn(stddev=self.init_range))
+            fc = Dense(self.dims[i])
 
             fc.build((input_shape[0],
                       input_shape[1],
@@ -30,7 +28,7 @@ class SingleSelfAttention(Layer):
             self._trainable_weights += fc.trainable_weights
             self.fc_layers.append(fc)
 
-        self.alpha_layer = Dense(1, kernel_initializer=tn(stddev=self.init_range))
+        self.alpha_layer = Dense(1)
         self.alpha_layer.build((input_shape[0],
                                 input_shape[1],
                                 self.dims[-1] if self.n_hidden>=1 else input_shape[-1]))
@@ -63,3 +61,8 @@ class SingleSelfAttention(Layer):
 
     def compute_output_shape(self, input_shape):
         return ((input_shape[0], input_shape[1]), (input_shape))
+
+class MultiHeadSelfAttention(Layer):
+
+    def __init__(self):
+        pass

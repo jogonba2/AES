@@ -1,12 +1,9 @@
 from AES.models.aes import AESModel
 from AES.utils.generator import TrainGenerator
-from AES.optimization.lr_annealing import Noam
-from AES.utils.callbacks import TimeCheckpoint
 import tensorflow as tf
 import transformers
 import json
 import sys
-import subprocess
 
 
 if __name__ == "__main__":
@@ -29,7 +26,6 @@ if __name__ == "__main__":
     model_name = config["huggingface"]["model_name"]
     shortcut_weights = config["huggingface"]["shortcut_weights"]
     tokenizer_name = config["huggingface"]["tokenizer"]
-    hidden_dim = config["huggingface"]["output_dim"]
     tokenizer = getattr(transformers,
                         tokenizer_name).from_pretrained(shortcut_weights)
 
@@ -76,7 +72,7 @@ if __name__ == "__main__":
                                   max_len_sent_summ, max_sents_summ,
                                   sent_split=sent_split).generator
 
-    # Create Dataset from generator #
+    # Create Dataset from generator for bigger batch sizes #
     dataset = tf.data.Dataset.from_generator(tr_generator,
                                              ({'doc_token_ids': tf.int32,
                                                'doc_positions': tf.int32,
@@ -89,28 +85,13 @@ if __name__ == "__main__":
                                                }, {"matching": tf.int32,
                                                    "selecting": tf.int32}))
 
-    n_dataset = int(subprocess.run(['wc', '-l', dataset_file],
-                    stdout=subprocess.PIPE).stdout.split()[0].strip()) - 1
-    train_dataset = dataset.shuffle(512).batch(batch_size).repeat(-1)
+    n_samples = 15000
+    train_dataset = dataset.shuffle(128).batch(batch_size).repeat(-1)
 
-    # Create Callbacks #
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(path_save_weights,
-                                                    monitor="loss",
-                                                    save_best_only=False)
-    hour_checkpoint = TimeCheckpoint(hours_step=1, path=path_save_weights)
-    callbacks = [hour_checkpoint]
-
-    if noam_annealing:
-        noam = Noam(warmup_steps=warmup_steps,
-                    hidden_dims=hidden_dim,
-                    accum_iters=grad_accum_iters,
-                    initial_batch=0)
-        callbacks.append(noam)
-
-    aes.model.fit(train_dataset, epochs=3, steps_per_epoch=n_dataset//batch_size, callbacks=callbacks)
-
+    aes.model.fit(train_dataset, epochs=2, steps_per_epoch=n_samples//batch_size)
     aes.save_model(path_save_weights)
 
     # Custom training for accumulating gradient #
     #https://colab.research.google.com/gist/rmothukuru/88dd02828f50d9727004d3d9db2c97d3/accumulation_of_gradients.ipynb#scrollTo=0m1xAXrmqEgJ
-
+    optimizer = tf.keras.optimizers.Adam()
+    loss_object = None
