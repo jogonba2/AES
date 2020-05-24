@@ -1,0 +1,41 @@
+{
+    "dataset": {
+        "file": "./datasets/cnndm/train.tsv"
+    },
+
+    "representation": {
+        "max_len_sent_doc": 40,
+        "max_sents_doc": 10,
+        "max_len_sent_summ": 20,
+        "max_sents_summ": 3,
+        "sent_split": "<s>"
+    },
+
+    "huggingface": {
+        "model_name": "TFBertModel",
+        "tokenizer": "BertTokenizerFast",
+        "shortcut_weights": "bert-base-cased",
+        "output_dim": 768
+    },
+
+    "optimization": {
+        "loss": "cosine_triplet_loss",
+        "margin": 1.0,
+        "learning_rate": 0.000001,
+        "noam_annealing": false,
+        "warmup_steps": 10000,
+        "grad_accum_iters": 1,
+        "ranking_triplet_func": "pairwise_cosine_similarity_rank",
+        "metrics": {"outputs": ["cosine_similarity_pos_pair",
+                                "cosine_similarity_neg_pair"]}
+    },
+
+    "training_params": {
+        "batch_size": 8,
+        "epochs": 10,
+        "path_save_weights": "./weights/cnndm/select_weights",
+        "verbose": 1
+    }
+
+}
+
