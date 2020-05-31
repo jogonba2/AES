@@ -1,5 +1,5 @@
 from AES.models.select_model import SelectModel
-from AES.utils.generator import SelectGenerator
+from AES.utils.generators import SelectGenerator
 from AES.optimization import metrics as metric_funcs
 from AES.utils import visualization
 import transformers
@@ -87,6 +87,7 @@ if __name__ == "__main__":
 
         print(alphas[0].shape)
         first_head = alphas[0]
+        print(alphas[0])
         #print("Suma por filas", first_head.sum(axis=0))
         #print("Suma por columnas", first_head.sum(axis=1))
-        visualization.att_visualization(first_head) #np.expand_dims(alphas[0], 0))
+        visualization.att_visualization(np.expand_dims(alphas[0], 0))

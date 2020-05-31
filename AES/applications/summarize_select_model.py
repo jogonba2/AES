@@ -1,5 +1,5 @@
 from AES.models.select_model import SelectModel
-from AES.utils.generator import SummarizeSelectGenerator
+from AES.utils.generators import SummarizeSelectGenerator
 from AES.utils import summarization_utils
 from pythonrouge.pythonrouge import Pythonrouge
 import transformers
@@ -7,6 +7,7 @@ import json
 import sys
 import subprocess
 
+# [3, 4, 5, 6, 7, 8, 9, 11, 2, 0] #
 
 if __name__ == "__main__":
     # Load config file #
@@ -80,7 +81,7 @@ if __name__ == "__main__":
                                              "doc_segments": batch["doc_segments"],
                                              "doc_masks": batch["doc_masks"]})
 
-        if c == 200: break
+        if c == 15: break
         for i in range(batch_size):
 
             scores = alphas[i]
@@ -120,7 +121,7 @@ if __name__ == "__main__":
     rouge = Pythonrouge(summary_file_exist=False, delete_xml=True,
                         summary=hyps, reference=refs,
                         n_gram=2, ROUGE_SU4=False, ROUGE_L=True,
-                        f_measure_only=True, stemming=True, stopwords=False,
+                        f_measure_only=False, stemming=True, stopwords=False,
                         word_level=True, length_limit=False)
 
     print("AES:", rouge.calc_score())
@@ -129,7 +130,7 @@ if __name__ == "__main__":
     rouge = Pythonrouge(summary_file_exist=False, delete_xml=True,
                         summary=leads, reference=refs,
                         n_gram=2, ROUGE_SU4=False, ROUGE_L=True,
-                        f_measure_only=True, stemming=True, stopwords=False,
+                        f_measure_only=False, stemming=True, stopwords=False,
                         word_level=True, length_limit=False)
 
     print("LEAD:", rouge.calc_score())

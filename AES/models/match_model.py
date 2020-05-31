@@ -6,14 +6,17 @@ import transformers
 import numpy as np
 
 
-class SelectModel():
+class MatchModel():
 
     def __init__(self, model_name, shortcut_weights,
                  max_len_sent_doc, max_sents_doc,
                  max_len_sent_summ, max_sents_summ,
                  noam_annealing=False, noam_params=None,
                  learning_rate=1e-3,
-                 loss="cosine_triplet_loss", margin=1.,
+                 loss_1="cosine_triplet_loss",
+                 loss_2="cosine_ranking_loss",
+                 margin_1=1.,
+                 margin_2=1.,
                  metrics={"outputs": ["cosine_similarity_pos_pair",
                                       "cosine_similarity_neg_pair"]},
                  avg_att_layers="all", train=True):
@@ -27,8 +30,10 @@ class SelectModel():
         self.max_len_seq_doc = (self.max_len_sent_doc * self.max_sents_doc) + (self.max_sents_doc * 2)
         self.max_len_seq_summ = (self.max_len_sent_summ * self.max_sents_summ) + (self.max_sents_summ * 2)
         self.learning_rate = learning_rate
-        self.losses = {"outputs": getattr(losses_module, loss)(margin)}
-        self.metrics = {"outputs": [getattr(metrics_module, metric) for metric in metrics["outputs"]]}
+        self.losses = {"outputs": getattr(losses_module, loss_1)(margin_1),
+                       "outputs2": getattr(losses_module, loss_2)(margin_2)}
+        self.metrics = {"outputs": [getattr(metrics_module, metric) for metric in metrics["outputs"]],
+                        "outputs2": getattr(metrics_module, metrics["outputs"][1])}
         self.avg_att_layers = avg_att_layers
         self.noam_annealing = noam_annealing
         self.noam_params = noam_params
@@ -79,34 +84,46 @@ class SelectModel():
 
     def build(self):
 
-        with tf.device("/GPU:0"):
+        with tf.device("/GPU:1"):
             input_ids = {"document": tf.keras.layers.Input(shape=(self.max_len_seq_doc,),
                                                            dtype=tf.int32, name="doc_token_ids"),
                          "positive": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
                                                            dtype=tf.int32, name="pos_token_ids"),
-                         "negative": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
-                                                           dtype=tf.int32, name="neg_token_ids")}
+                         "candidate_i": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                           dtype=tf.int32, name="candi_token_ids"),
+                         "candidate_j": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                              dtype=tf.int32, name="candj_token_ids")
+                         }
 
             input_masks = {"document": tf.keras.layers.Input(shape=(self.max_len_seq_doc,),
                                                              dtype=tf.int32, name="doc_masks"),
                            "positive": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
                                                              dtype=tf.int32, name="pos_masks"),
-                           "negative": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
-                                                             dtype=tf.int32, name="neg_masks")}
+                           "candidate_i": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                             dtype=tf.int32, name="candi_masks"),
+                           "candidate_j": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                                dtype=tf.int32, name="candj_masks")
+                           }
 
             input_segments = {"document": tf.keras.layers.Input(shape=(self.max_len_seq_doc,),
                                                                 dtype=tf.int32, name="doc_segments"),
                               "positive": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
                                                                 dtype=tf.int32, name="pos_segments"),
-                              "negative": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
-                                                                dtype=tf.int32, name="neg_segments")}
+                              "candidate_i": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                                dtype=tf.int32, name="candi_segments"),
+                              "candidate_j": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                                   dtype=tf.int32, name="candj_segments")
+                              }
 
             input_positions = {"document": tf.keras.layers.Input(shape=(self.max_len_seq_doc,),
                                                                  dtype=tf.int32, name="doc_positions"),
                                "positive": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
                                                                  dtype=tf.int32, name="pos_positions"),
-                               "negative": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
-                                                                 dtype=tf.int32, name="neg_positions")}
+                               "candidate_i": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                                 dtype=tf.int32, name="candi_positions"),
+                               "candidate_j": tf.keras.layers.Input(shape=(self.max_len_seq_summ,),
+                                                                    dtype=tf.int32, name="candj_positions")
+                               }
 
 
             # Select HuggingFace model
@@ -117,15 +134,13 @@ class SelectModel():
             # Add position embeddings until cover the max_seq_len #
             self._add_position_embeddings(sent_encoder.embeddings.position_embeddings)
 
-
             # Document/Candidate Branch #
             doc_outs = sent_encoder([input_ids["document"],
                                      input_masks["document"],
                                      input_segments["document"],
                                      input_positions["document"]])
 
-            if not self.train:
-                att_sent_scores = self._get_sentence_scores(doc_outs[2])
+            att_sent_scores = self._get_sentence_scores(doc_outs[2])
 
             encoded_doc = doc_outs[0]
 
@@ -135,7 +150,7 @@ class SelectModel():
                                                             self.max_len_sent_doc+2)],
                                           axis=1)
 
-            candidate_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_doc_sents)
+            document_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_doc_sents)
 
 
             # Positive Branch #
@@ -155,64 +170,90 @@ class SelectModel():
 
             positive_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_positive_sents)
 
-            # Negative Branch #
-            neg_outs = sent_encoder([input_ids["negative"],
-                                     input_masks["negative"],
-                                     input_segments["negative"],
-                                     input_positions["negative"]])
+            # Candidate i Branch #
+            candi_outs = sent_encoder([input_ids["candidate_i"],
+                                     input_masks["candidate_i"],
+                                     input_segments["candidate_i"],
+                                     input_positions["candidate_i"]])
 
-            encoded_negative = neg_outs[0]
+            encoded_candi = candi_outs[0]
 
-
-            encoded_negative_sents = tf.gather(encoded_negative,
+            encoded_candi_sents = tf.gather(encoded_candi,
                                           [_ for _ in range(0, self.max_len_seq_summ,
                                                             self.max_len_sent_summ+2)],
                                           axis=1)
 
-            negative_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_negative_sents)
+            candi_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_candi_sents)
+
+            # Candidate j Branch #
+            candj_outs = sent_encoder([input_ids["candidate_j"],
+                                     input_masks["candidate_j"],
+                                     input_segments["candidate_j"],
+                                     input_positions["candidate_j"]])
+
+            encoded_candj = candj_outs[0]
 
 
-            # Concatenate all the outputs for computing the loss #
-            outputs = tf.keras.layers.Concatenate(axis=-1, name="outputs")([candidate_repr,
+            encoded_candj_sents = tf.gather(encoded_candj,
+                                          [_ for _ in range(0, self.max_len_seq_summ,
+                                                            self.max_len_sent_summ+2)],
+                                          axis=1)
+
+            candj_repr = tf.keras.layers.GlobalAveragePooling1D()(encoded_candj_sents)
+
+
+            # Concatenate (document, reference and candidate_i) for computing the loss_1 #
+            outputs = tf.keras.layers.Concatenate(axis=-1, name="outputs")([document_repr,
                                                                             positive_repr,
-                                                                            negative_repr])
+                                                                            candi_repr])
 
-            # Concatenate candidate and positive summaries for triplet mining #
-            candidate_positive_reprs = tf.keras.layers.Concatenate(axis=-1)([candidate_repr,
-                                                                             positive_repr])
-
+            # Concatenate (document, candidate_i and candidate_j) for computing the loss_2 #
+            outputs2 = tf.keras.layers.Concatenate(axis=-1, name="outputs2")([document_repr,
+                                                                              candi_repr,
+                                                                              candj_repr])
 
             # Define models #
             self.model = tf.keras.Model(inputs=[input_ids["document"],
-                                                input_masks["document"],
-                                                input_segments["document"],
-                                                input_positions["document"],
-                                                input_ids["positive"],
-                                                input_masks["positive"],
-                                                input_segments["positive"],
-                                                input_positions["positive"],
-                                                input_ids["negative"],
-                                                input_masks["negative"],
-                                                input_segments["negative"],
-                                                input_positions["negative"]],
-                                          outputs=outputs)
-
-            self.triplet_mining_model = tf.keras.Model(inputs=[input_ids["document"],
                                                        input_masks["document"],
-                                                       input_segments["document"],
-                                                       input_positions["document"],
-                                                       input_ids["positive"],
-                                                       input_masks["positive"],
-                                                       input_segments["positive"],
-                                                       input_positions["positive"]],
-                                                       outputs=candidate_positive_reprs)
+                                                        input_segments["document"],
+                                                        input_positions["document"],
+                                                        input_ids["positive"],
+                                                        input_masks["positive"],
+                                                        input_segments["positive"],
+                                                        input_positions["positive"],
+                                                        input_ids["candidate_i"],
+                                                        input_masks["candidate_i"],
+                                                        input_segments["candidate_i"],
+                                                        input_positions["candidate_i"],
+                                                        input_ids["candidate_j"],
+                                                        input_masks["candidate_j"],
+                                                        input_segments["candidate_j"],
+                                                        input_positions["candidate_j"]],
+                                                outputs=[outputs, outputs2])
 
-            if not self.train:
-                self.selector_model = tf.keras.Model(inputs=[input_ids["document"],
-                                                     input_masks["document"],
-                                                     input_segments["document"],
-                                                     input_positions["document"]],
-                                                     outputs=att_sent_scores)
+            self.pos_repr_model = tf.keras.Model(inputs=[input_ids["positive"],
+                                                 input_masks["positive"],
+                                                 input_segments["positive"],
+                                                 input_positions["positive"]],
+                                                 outputs=positive_repr)
+
+            self.candi_repr_model = tf.keras.Model(inputs=[input_ids["candidate_i"],
+                                                 input_masks["candidate_i"],
+                                                 input_segments["candidate_i"],
+                                                 input_positions["candidate_i"]],
+                                                 outputs=candi_repr)
+
+            self.candj_repr_model = tf.keras.Model(inputs=[input_ids["candidate_j"],
+                                                 input_masks["candidate_j"],
+                                                 input_segments["candidate_j"],
+                                                 input_positions["candidate_j"]],
+                                                 outputs=candj_repr)
+
+            self.selector_model = tf.keras.Model(inputs=[input_ids["document"],
+                                                 input_masks["document"],
+                                                 input_segments["document"],
+                                                 input_positions["document"]],
+                                                 outputs=att_sent_scores)
 
     def compile(self):
         assert self.model

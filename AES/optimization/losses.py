@@ -41,3 +41,23 @@ def cosine_triplet_loss(margin=1):
         return K.maximum(neg_sim - pos_sim + margin, 0)
 
     return f
+
+def cosine_ranking_loss(margin=1):
+    def f(diffs_ranking, y_pred):
+        vector_size = y_pred.shape[-1] // 3
+        anchor = y_pred[:, :vector_size]
+        candi = y_pred[:, vector_size:2*vector_size]
+        candj = y_pred[:, 2*vector_size:]
+
+        # Normalize #
+        anchor = tf.math.l2_normalize(anchor)
+        candi = tf.math.l2_normalize(candi)
+        candj = tf.math.l2_normalize(candj)
+
+        # Compute similarities #
+        candi_sim = -tf.keras.losses.cosine_similarity(anchor, candi, axis=-1)
+        candj_sim = -tf.keras.losses.cosine_similarity(anchor, candj, axis=-1)
+
+        return K.maximum(candj_sim - candi_sim + (diffs_ranking * margin), 0)
+
+    return f

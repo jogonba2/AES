@@ -27,11 +27,11 @@
     },
 
     "inference_params": {
-        "batch_size": 8,
+        "batch_size": 16,
         "k": 3,
-        "avg_att_layers": "all",
-        "ngram_blocking": 3,
-        "path_load_weights": "./weights/cnndm/select_weights",
+        "avg_att_layers": [3, 6, 4, 5, 7, 8, 11, 2, 0, 9],
+        "ngram_blocking": 6,
+        "path_load_weights": "./weights/select_models/cnndm_best/select_weights",
         "verbose": false
     }
 }

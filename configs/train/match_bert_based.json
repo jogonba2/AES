@@ -18,14 +18,23 @@
         "output_dim": 768
     },
 
-    "optimization": {
+    "select_model_params": {
         "loss": "cosine_triplet_loss",
-        "margin": 1.0,
+        "margin": 1.0
+    },
+
+    "optimization": {
+        "loss_1": "cosine_triplet_loss",
+        "loss_2": "cosine_ranking_loss",
+        "margin_1": 0.0,
+        "margin_2": 0.01,
+        "k_max": 5,
+        "avg_att_layers": [3, 6, 4, 5, 7, 8, 11, 2, 0, 9],
+        "ngram_blocking": 6,
         "learning_rate": 0.0001,
         "noam_annealing": true,
         "warmup_steps": 8000,
         "grad_accum_iters": 8,
-        "ranking_triplet_func": "pairwise_cosine_similarity_rank",
         "metrics": {"outputs": ["cosine_similarity_pos_pair",
                                 "cosine_similarity_neg_pair"]}
     },
@@ -33,9 +42,9 @@
     "training_params": {
         "batch_size": 4,
         "epochs": 10,
-        "path_save_weights": "./weights/cnndm/select_weights",
+        "path_select_weights": "./weights/select_models/cnndm_best/select_weights",
+        "path_save_weights": "./weights/match_models/cnndm/match_weights",
         "verbose": 1
     }
 
 }
-

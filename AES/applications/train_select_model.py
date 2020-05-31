@@ -1,5 +1,5 @@
 from AES.models.select_model import SelectModel
-from AES.utils.generator import SelectGenerator
+from AES.utils.generators import SelectGenerator
 from AES.optimization.train_schedule import grad_accum_select_fit
 from AES.utils import callbacks
 import tensorflow as tf

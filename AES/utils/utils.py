@@ -1,6 +1,40 @@
 import numpy as np
+import itertools
 from datetime import datetime
 
+
+def get_batch(buckets, key1, key2):
+    token_ids = []
+    positions = []
+    segments = []
+    masks = []
+    for i, doc_index in enumerate(buckets):
+        token_ids.append(buckets[doc_index][key1]["token_ids"])
+        positions.append(buckets[doc_index][key1]["positions"])
+        segments.append(buckets[doc_index][key1]["segments"])
+        masks.append(buckets[doc_index][key1]["masks"])
+
+    return {key2+"_token_ids": np.array(token_ids),
+            key2+"_positions": np.array(positions),
+            key2+"_segments": np.array(segments),
+            key2+"_masks": np.array(masks)}
+
+def check_valid_candidate(doc_sents, candidate_index, ngram_blocking):
+    candidate = doc_sents[candidate_index].tolist()
+    ngrams_bag = set()
+    for sentence in candidate:
+        ngrams = get_ngrams(sentence, ngram_blocking)
+        if not ngrams_bag.intersection(ngrams):
+            ngrams_bag = ngrams_bag.union(ngrams)
+        else:
+            return False
+    return candidate
+
+def get_combinations(k_best_sentences):
+    combinations = []
+    for k in range(1, len(k_best_sentences) + 1):
+        combinations += map(list, itertools.combinations(k_best_sentences, k))
+    return combinations
 
 def prepare_inputs(text_sents, tokenizer,
                    max_len_sent, max_sents):

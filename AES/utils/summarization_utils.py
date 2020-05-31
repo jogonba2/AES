@@ -12,14 +12,13 @@ def selection_summary_ngram_blocking(scores, doc_sents,
     rank = scores.argsort()[::-1]
     if n_sents < k:
         gen_summary_sents = doc_sents
-
     else:
         ngrams_bag = set()
         considered_sents = 0
+
         for pos in rank:
             sentence = doc_sents[pos]
             ngrams = utils.get_ngrams(sentence, block_ngrams)
-
             if not ngrams_bag.intersection(ngrams):
                 considered_sents += 1
                 gen_summary_sents.append(sentence)

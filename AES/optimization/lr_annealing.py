@@ -9,7 +9,7 @@ class Noam(LearningRateSchedule):
       super(Noam, self).__init__()
 
   def __call__(self, step):
-      new_lr = (self.hidden_dims ** -0.5) * \
+      new_lr = 2e-3 * \
                minimum((step ** (-0.5)), step * (self.warmup_steps ** (-1.5)))
       return new_lr
 
