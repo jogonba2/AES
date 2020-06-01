@@ -31,10 +31,6 @@ if __name__ == "__main__":
     hidden_dim = config["huggingface"]["output_dim"]
     tokenizer = getattr(transformers, tokenizer_name).from_pretrained(shortcut_weights)
 
-    # Params for the select model #
-    select_loss = config["select_model_params"]["loss"]
-    select_margin = config["select_model_params"]["margin"]
-
     # Params for optimization process (match model) #
     loss_1 = config["optimization"]["loss_1"]
     loss_2 = config["optimization"]["loss_2"]
@@ -56,60 +52,40 @@ if __name__ == "__main__":
     # Params for training process #
     batch_size = config["training_params"]["batch_size"]
     epochs = config["training_params"]["epochs"]
-    path_select_weights = config["training_params"]["path_select_weights"]
     path_save_weights = config["training_params"]["path_save_weights"]
     verbose = config["training_params"]["verbose"]
 
-    # Create model aes_select #
-    aes_select = SelectModel(model_name=model_name,
-                              shortcut_weights=shortcut_weights,
-                              max_len_sent_doc=max_len_sent_doc,
-                              max_sents_doc=max_sents_doc,
-                              max_len_sent_summ=max_len_sent_summ,
-                              max_sents_summ=max_sents_summ,
-                              learning_rate=learning_rate,
-                              loss=select_loss,
-                              margin=select_margin,
-                              metrics=metrics,
-                              avg_att_layers=avg_att_layers,
-                              train=False)
-    aes_select.build()
-    aes_select.compile()
-    aes_select.model.load_weights(path_select_weights)
-#    print(aes_select.model.summary())
-
-    # Define aes_match
-    aes_match = MatchModel(model_name, shortcut_weights,
-                             max_len_sent_doc, max_sents_doc,
-                             max_len_sent_summ, max_sents_summ,
-                             noam_annealing=noam_annealing,
-                             noam_params=noam_params,
-                             learning_rate=learning_rate,
-                             loss_1=loss_1, loss_2=loss_2,
-                             margin_1=margin_1, margin_2=margin_2,
-                             metrics=metrics, avg_att_layers=avg_att_layers,
-                             train=True)
-    aes_match.build()
-    aes_match.compile()
-    # Start with same weights #
-    aes_match.model.load_weights(path_select_weights)
-
-#    print(aes_match.model.summary())
+    # Definir aes_full. El modelo es idéntico a match_model, pero el
+    # extractor está basado en nuestros modelos siamese attentional.
+    # Se usan las atenciones del encoder a nivel de frases para extraer resúmenes
+    # durante el entrenamiento del modelo completo. #
+    aes_full = MatchModel(model_name, shortcut_weights,
+                          max_len_sent_doc, max_sents_doc,
+                          max_len_sent_summ, max_sents_summ,
+                          noam_annealing=noam_annealing,
+                          noam_params=noam_params,
+                          learning_rate=learning_rate,
+                          loss_1=loss_1, loss_2=loss_2,
+                          margin_1=margin_1, margin_2=margin_2,
+                          metrics=metrics, avg_att_layers=avg_att_layers,
+                          train=True)
+    aes_full.build()
+    aes_full.compile()
 
     n_dataset = int(subprocess.run(['wc', '-l', dataset_file],
                     stdout=subprocess.PIPE).stdout.split()[0].strip()) - 1
 
     train_generator = MatchGenerator(dataset_file, tokenizer,
-                                     aes_select, k_max, avg_att_layers,
+                                     aes_full, k_max, avg_att_layers,
                                      ngram_blocking, batch_size, max_len_sent_doc,
                                      max_sents_doc, max_len_sent_summ,
                                      max_sents_summ, sent_split="<s>",
                                      train=True).generator
 
     if grad_accum_iters > 1:
-        grad_accum_match_fit(aes_match, train_generator(), epochs,
+        grad_accum_match_fit(aes_full, train_generator(), epochs,
                               (n_dataset // batch_size) * 10,
-                              optimizer=aes_match.get_optimizer(),
+                              optimizer=aes_full.get_optimizer(),
                               path_save_weights=path_save_weights,
                               grad_accum_iters=grad_accum_iters,
                               hour_checkpointing=True)
@@ -117,10 +93,10 @@ if __name__ == "__main__":
     else:
         hour_checkpointing = callbacks.TimeCheckpoint(hours_step=1,
                                                       path=path_save_weights,
-                                                      aes=aes_match)
-        aes_match.model.fit(train_generator(),
+                                                      aes=aes_full)
+        aes_full.model.fit(train_generator(),
                       steps_per_epoch=(n_dataset // batch_size)*10,
                       epochs=1, callbacks=[hour_checkpointing])
 
 
-    aes_match.save_model(aes_match.model, path_save_weights)
+    aes_full.save_model(aes_full.model, path_save_weights)

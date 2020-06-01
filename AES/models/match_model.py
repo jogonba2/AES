@@ -214,46 +214,52 @@ class MatchModel():
 
             # Define models #
             self.model = tf.keras.Model(inputs=[input_ids["document"],
-                                                       input_masks["document"],
-                                                        input_segments["document"],
-                                                        input_positions["document"],
-                                                        input_ids["positive"],
-                                                        input_masks["positive"],
-                                                        input_segments["positive"],
-                                                        input_positions["positive"],
-                                                        input_ids["candidate_i"],
-                                                        input_masks["candidate_i"],
-                                                        input_segments["candidate_i"],
-                                                        input_positions["candidate_i"],
-                                                        input_ids["candidate_j"],
-                                                        input_masks["candidate_j"],
-                                                        input_segments["candidate_j"],
-                                                        input_positions["candidate_j"]],
-                                                outputs=[outputs, outputs2])
+                                                input_masks["document"],
+                                                input_segments["document"],
+                                                input_positions["document"],
+                                                input_ids["positive"],
+                                                input_masks["positive"],
+                                                input_segments["positive"],
+                                                input_positions["positive"],
+                                                input_ids["candidate_i"],
+                                                input_masks["candidate_i"],
+                                                input_segments["candidate_i"],
+                                                input_positions["candidate_i"],
+                                                input_ids["candidate_j"],
+                                                input_masks["candidate_j"],
+                                                input_segments["candidate_j"],
+                                                input_positions["candidate_j"]],
+                                        outputs=[outputs, outputs2])
 
             self.pos_repr_model = tf.keras.Model(inputs=[input_ids["positive"],
-                                                 input_masks["positive"],
-                                                 input_segments["positive"],
-                                                 input_positions["positive"]],
+                                                         input_masks["positive"],
+                                                         input_segments["positive"],
+                                                         input_positions["positive"]],
                                                  outputs=positive_repr)
 
             self.candi_repr_model = tf.keras.Model(inputs=[input_ids["candidate_i"],
-                                                 input_masks["candidate_i"],
-                                                 input_segments["candidate_i"],
-                                                 input_positions["candidate_i"]],
-                                                 outputs=candi_repr)
+                                                           input_masks["candidate_i"],
+                                                           input_segments["candidate_i"],
+                                                           input_positions["candidate_i"]],
+                                                   outputs=candi_repr)
 
             self.candj_repr_model = tf.keras.Model(inputs=[input_ids["candidate_j"],
-                                                 input_masks["candidate_j"],
-                                                 input_segments["candidate_j"],
-                                                 input_positions["candidate_j"]],
-                                                 outputs=candj_repr)
+                                                           input_masks["candidate_j"],
+                                                           input_segments["candidate_j"],
+                                                           input_positions["candidate_j"]],
+                                                   outputs=candj_repr)
 
             self.selector_model = tf.keras.Model(inputs=[input_ids["document"],
-                                                 input_masks["document"],
-                                                 input_segments["document"],
-                                                 input_positions["document"]],
+                                                         input_masks["document"],
+                                                         input_segments["document"],
+                                                         input_positions["document"]],
                                                  outputs=att_sent_scores)
+
+            self.doc_repr_model = tf.keras.Model(inputs=[input_ids["document"],
+                                                         input_masks["document"],
+                                                         input_segments["document"],
+                                                         input_positions["document"]],
+                                                 outputs=document_repr)
 
     def compile(self):
         assert self.model
@@ -276,4 +282,3 @@ class MatchModel():
 
     def save_model(self, model, path_save_weights):
         model.save_weights(path_save_weights)
-

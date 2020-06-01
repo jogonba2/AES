@@ -66,7 +66,7 @@ def grad_accum_select_fit(aes, train_generator, epochs,
             sim_cand_neg_avg.update_state(sim_cand_neg)
 
             # Monitorize losses and metrics after the batch #
-            tqbar.set_description("Total loss: %.4f: " \
+            tqbar.set_description("Total loss: %.4f: |||" \
                   " Cand-Pos sim: %.4f, Cand-Neg sim: %.4f\n"%
                   (total_loss_avg.result(), sim_cand_pos_avg.result(), sim_cand_neg_avg.result()))
             tqbar.refresh()
@@ -80,7 +80,7 @@ def grad_accum_select_fit(aes, train_generator, epochs,
         train_loss_results.append(total_loss_avg.result())
 
         # Monitorize losses and metrics after the epoch #
-        tqbar.set_description("Total loss: %.4f: " \
+        tqbar.set_description("Total loss: %.4f: |||" \
                               " Cand-Pos sim: %.4f, Cand-Neg sim: %.4f\n" %
                               (total_loss_avg.result(), sim_cand_pos_avg.result(), sim_cand_neg_avg.result()))
         tqbar.refresh()
@@ -157,7 +157,7 @@ def grad_accum_match_fit(aes, train_generator, epochs,
             sim_doc_candj_avg.update_state(sim_doc_candj)
 
             # Monitorize losses and metrics after the batch #
-            tqbar.set_description("Total loss: %.4f: Loss1: %.4f Loss2: %.4f " \
+            tqbar.set_description("Total loss: %.4f: Loss1: %.4f Loss2: %.4f |||" \
                   "Doc-Pos sim: %.4f, Doc-Candi sim: %.4f, Doc-Candj sim: %.4f\n"%
                   (total_loss_avg.result(),
                    total_loss_1_avg.result(),
@@ -174,7 +174,7 @@ def grad_accum_match_fit(aes, train_generator, epochs,
         train_loss_results.append(total_loss_avg.result())
 
         # Monitorize losses and metrics after the epoch #
-        tqbar.set_description("Total loss: %.4f: Loss1: %.4f Loss2: %.4f " \
+        tqbar.set_description("Total loss: %.4f: Loss1: %.4f Loss2: %.4f |||" \
                               "Doc-Pos sim: %.4f, Doc-Candi sim: %.4f, Doc-Candj sim: %.4f\n" %
                               (total_loss_avg.result(),
                                total_loss_1_avg.result(),

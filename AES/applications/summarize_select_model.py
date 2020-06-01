@@ -81,7 +81,7 @@ if __name__ == "__main__":
                                              "doc_segments": batch["doc_segments"],
                                              "doc_masks": batch["doc_masks"]})
 
-        if c == 15: break
+        if c == 200: break
         for i in range(batch_size):
 
             scores = alphas[i]

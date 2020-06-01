@@ -116,7 +116,7 @@ class SelectGenerator:
                 doc_sents = ut.preprocess_text(doc, self.sent_split)
                 summ_sents = ut.preprocess_text(summ, self.sent_split)
 
-                if not doc or not summ:
+                if not doc_sents or not summ_sents:
                     continue
 
                 (doc_token_ids, doc_positions,
@@ -188,11 +188,11 @@ class SummarizeSelectGenerator:
             doc_sents = ut.preprocess_text(doc, self.sent_split)
             summ_sents = ut.preprocess_text(summ, self.sent_split)
 
+            if not doc_sents or not summ_sents:
+                continue
+
             self.doc_sents.append(doc_sents)
             self.summ_sents.append(summ_sents)
-
-            if not doc or not summ:
-                continue
 
             (doc_token_ids, doc_positions,
              doc_segments, doc_masks) = ut.prepare_inputs(doc_sents,
@@ -213,11 +213,10 @@ class SummarizeSelectGenerator:
 
 # GENERATORS FOR MATCH MODEL #
 
-# Fast
 class MatchGenerator:
 
     def __init__(self, dataset_file, tokenizer,
-                 aes_select, k_max, avg_att_layers,
+                 aes, k_max, avg_att_layers,
                  ngram_blocking, batch_size, max_len_sent_doc,
                  max_sents_doc, max_len_sent_summ,
                  max_sents_summ, sent_split="<s>",
@@ -228,7 +227,7 @@ class MatchGenerator:
         self.k_max = k_max
         self.avg_att_layers = avg_att_layers
         self.ngram_blocking = ngram_blocking
-        self.selector_model = aes_select.selector_model
+        self.selector_model = aes.selector_model
         self.batch_size = batch_size
         self.max_len_sent_doc = max_len_sent_doc
         self.max_sents_doc = max_sents_doc
@@ -263,7 +262,7 @@ class MatchGenerator:
         self.batch_diffs_ranking = np.zeros((self.batch_size,), dtype="float32")
 
         self.batch_samples = 0
-        self.bucket_max_size = 1000
+        self.bucket_max_size = 30000
         self._rouge = Rouge()
 
 
@@ -286,7 +285,7 @@ class MatchGenerator:
                 summ_sents = ut.preprocess_text(summ, self.sent_split)
 
                 # Comprobar que documento y referencia son validos #
-                if not doc or not summ:
+                if not doc_sents or not summ_sents:
                     continue
 
                 n_doc_sents = len(doc_sents)
@@ -356,13 +355,9 @@ class MatchGenerator:
                         rouge_scores = []
                         for j, candidate_index in enumerate(candidate_indices):
                             candidate_index.sort()  # Ordenar por orden de aparición en el documento
-                            candidate_sents = ut.check_valid_candidate(doc_sents, candidate_index,
-                                                                       self.ngram_blocking)
 
-                            if not candidate_sents:
-                                continue
+                            candidate_sents = doc_sents[candidate_index]
 
-                            # Candidato valido (no n-gram blocking) #
                             (candi_token_ids, candi_positions,
                              candi_segments, candi_masks) = ut.prepare_inputs(candidate_sents,
                                                                               self.tokenizer,
@@ -520,3 +515,124 @@ class MatchGenerator:
 
                     # Cuando finaliza el random sampling se reinicia el bucket #
                     buckets = {}
+
+class SummarizeMatchGenerator:
+
+    def __init__(self, dataset_file, tokenizer,
+                 aes_select, batch_size, max_len_sent_doc,
+                 max_sents_doc, max_len_sent_summ,
+                 max_sents_summ, k_max, ngram_blocking, sent_split="<s>"):
+
+        self.dataset_file = dataset_file
+        self.tokenizer = tokenizer
+        self.batch_size = batch_size
+        self.max_len_sent_doc = max_len_sent_doc
+        self.max_sents_doc = max_sents_doc
+        self.max_len_sent_summ = max_len_sent_summ
+        self.max_sents_summ = max_sents_summ
+        self.k_max = k_max
+        self.ngram_blocking = ngram_blocking
+        self.sent_split = sent_split
+        self.selector_model = aes_select.selector_model
+        self.max_len_seq_doc = (self.max_len_sent_doc * self.max_sents_doc) + (self.max_sents_doc * 2)
+        self.max_len_seq_summ = (self.max_len_sent_summ * self.max_sents_summ) + (self.max_sents_summ * 2)
+
+        self.batch_doc_token_ids = np.zeros((self.batch_size, self.max_len_seq_doc), dtype="int32")
+        self.batch_doc_positions = np.zeros((self.batch_size, self.max_len_seq_doc), dtype="int32")
+        self.batch_doc_segments = np.zeros((self.batch_size, self.max_len_seq_doc), dtype="int32")
+        self.batch_doc_masks = np.zeros((self.batch_size, self.max_len_seq_doc), dtype="int32")
+
+        self.batch_candi_token_ids = np.zeros((self.batch_size, self.max_len_seq_summ), dtype="int32")
+        self.batch_candi_positions = np.zeros((self.batch_size, self.max_len_seq_summ), dtype="int32")
+        self.batch_candi_segments = np.zeros((self.batch_size, self.max_len_seq_summ), dtype="int32")
+        self.batch_candi_masks = np.zeros((self.batch_size, self.max_len_seq_summ), dtype="int32")
+
+        self.bucket_max_size = 5
+        self.batch_samples = 0
+
+
+    def generator(self):
+        fr = open(self.dataset_file, "r", encoding="utf8")
+        fr.readline() # Skip header
+        lines = fr.readlines()
+        buckets = {}
+
+        for doc_index, line in enumerate(lines):
+            # Separar documento y referencia #
+            doc, summ = line.split("\t")
+            doc_sents = ut.preprocess_text(doc, self.sent_split)
+            summ_sents = ut.preprocess_text(summ, self.sent_split)
+
+            # Comprobar que documento y referencia son validos #
+            if not doc_sents or not summ_sents:
+                continue
+
+            # Preparo documento #
+            (doc_token_ids, doc_positions,
+             doc_segments, doc_masks) = ut.prepare_inputs(doc_sents,
+                                                          self.tokenizer,
+                                                          self.max_len_sent_doc,
+                                                          self.max_sents_doc)
+
+            # Añadir documento al bucket #
+            buckets[doc_index] = {"document": {"token_ids": doc_token_ids,
+                                               "positions": doc_positions,
+                                               "segments": doc_segments,
+                                               "masks": doc_masks,
+                                               "sents": doc_sents},
+                                  "reference": {"sents": summ_sents},
+                                  "candidates": {},
+                                  "combination_indices": [],
+                                  }
+
+            # Si se ha llenado el bucket, ya tenemos todos los documentos y referencias #
+            if len(buckets) == self.bucket_max_size:
+                # Batchify de los documentos del bucket #
+                documents_batch = ut.get_batch(buckets, key1="document", key2="doc")
+
+                # Sacar las atenciones de los documentos #
+                sent_scores = self.selector_model.predict(documents_batch, batch_size=32)
+
+                # Procesar cada documento #
+                for i, doc_index in enumerate(buckets):
+                    n_sents = len(buckets[doc_index]["document"]["sents"])
+
+                    doc_sent_scores = sent_scores[i]
+
+                    # Reajustar el padding para sacar frases #
+                    if n_sents < self.max_sents_doc:
+                        doc_sent_scores = doc_sent_scores[:n_sents]
+
+                    # Rankear las atenciones y coger las k más atentidas #
+                    rank = doc_sent_scores.argsort()[::-1]
+                    k_best_sentences = rank[:self.k_max]
+
+                    # Generar los candidatos (combinaciones de las k máximas) #
+                    candidate_indices = ut.get_combinations(k_best_sentences)
+                    doc_sents = np.array(buckets[doc_index]["document"]["sents"])
+                    buckets[doc_index]["combination_indices"] = candidate_indices
+
+                    # Generar los candidatos #
+                    for j, candidate_index in enumerate(candidate_indices):
+                        candidate_index.sort()  # Ordenar por orden de aparición en el documento
+                        candidate_sents = doc_sents[candidate_index]
+
+                        (candi_token_ids, candi_positions,
+                         candi_segments, candi_masks) = ut.prepare_inputs(candidate_sents,
+                                                                          self.tokenizer,
+                                                                          self.max_len_sent_summ,
+                                                                          self.max_sents_summ)
+
+                        buckets[doc_index]["candidates"][j] = {"indices": candidate_index,
+                                                               "token_ids": candi_token_ids,
+                                                               "positions": candi_positions,
+                                                               "segments": candi_segments,
+                                                               "masks": candi_masks,
+                                                               "sents": candidate_sents}
+
+                    # Una vez calculados los candidatos para el documento #
+                    # Se devuelve toda la información de ese documento (incluyendo referencia y candidatos) #
+                    yield buckets[doc_index]
+
+                # Una vez procesados todos los documentos del bucket, reiniciarlo #
+                buckets = {}

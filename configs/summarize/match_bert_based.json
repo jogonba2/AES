@@ -1,6 +1,6 @@
 {
     "dataset": {
-        "file": "./datasets/cnndm/train.tsv"
+        "file": "./datasets/cnndm/test.tsv"
     },
 
     "representation": {
@@ -18,33 +18,28 @@
         "output_dim": 768
     },
 
-    "select_model_params": {
+    "select_params": {
         "loss": "cosine_triplet_loss",
         "margin": 1.0
     },
 
-    "optimization": {
+   "match_params": {
         "loss_1": "cosine_triplet_loss",
         "loss_2": "cosine_ranking_loss",
         "margin_1": 1.0,
         "margin_2": 0.1,
-        "k_max": 5,
-        "avg_att_layers": [3, 6, 4, 5, 7, 8, 11, 2, 0, 9],
-        "ngram_blocking": 6,
         "learning_rate": 0.0001,
-        "noam_annealing": true,
-        "warmup_steps": 8000,
-        "grad_accum_iters": 8,
         "metrics": {"outputs": ["cosine_similarity_pos_pair",
                                 "cosine_similarity_neg_pair"]}
     },
 
-    "training_params": {
-        "batch_size": 4,
-        "epochs": 10,
+    "inference_params": {
+        "batch_size": 16,
+        "k_max": 3,
+        "avg_att_layers": [3, 6, 4, 5, 7, 8, 11, 2, 0, 9],
+        "ngram_blocking": 3,
         "path_select_weights": "./weights/select_models/cnndm_best/select_weights",
-        "path_save_weights": "./weights/match_models/cnndm/match_weights",
-        "verbose": 1
+        "path_match_weights": "./weights/match_models/cnndm/match_weights",
+        "verbose": false
     }
-
 }
